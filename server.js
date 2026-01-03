@@ -159,33 +159,57 @@ const lobbies = new Map();
 let peersCount = 0;
 
 function joinLobby(peer, pLobby, mesh) {
+	// Peer must not already be in a lobby
+	if (peer.lobby !== '') {
+		throw new ProtoError(4000, STR_ALREADY_IN_LOBBY);
+	}
+
 	let lobbyName = pLobby;
+
+	// If client didn't supply a name, generate one (current behavior)
 	if (lobbyName === '') {
 		if (lobbies.size >= MAX_LOBBIES) {
 			throw new ProtoError(4000, STR_TOO_MANY_LOBBIES);
 		}
-		// Peer must not already be in a lobby
-		if (peer.lobby !== '') {
-			throw new ProtoError(4000, STR_ALREADY_IN_LOBBY);
-		}
 		lobbyName = randomSecret();
 		lobbies.set(lobbyName, new Lobby(lobbyName, peer.id, mesh));
-		console.log(`Peer ${peer.id} created lobby ${lobbyName}`);
+		console.log(`Peer ${peer.id} created lobby ${lobbyName} (random)`);
 		console.log(`Open lobbies: ${lobbies.size}`);
+	} else {
+		// Client supplied a name: create it if missing
+		let lobby = lobbies.get(lobbyName);
+
+		if (!lobby) {
+			if (lobbies.size >= MAX_LOBBIES) {
+				throw new ProtoError(4000, STR_TOO_MANY_LOBBIES);
+			}
+			lobby = new Lobby(lobbyName, peer.id, mesh);
+			lobbies.set(lobbyName, lobby);
+			console.log(`Peer ${peer.id} created lobby ${lobbyName} (named)`);
+			console.log(`Open lobbies: ${lobbies.size}`);
+		} else {
+			// Optional: enforce that mesh setting can't change after creation
+			// (Pick one policy; this one rejects mismatches.)
+			if (lobby.mesh !== mesh) {
+				throw new ProtoError(4000, STR_INVALID_CMD);
+			}
+		}
 	}
+
 	const lobby = lobbies.get(lobbyName);
 	if (!lobby) {
-		throw new ProtoError(4000, STR_LOBBY_DOES_NOT_EXISTS);
+		throw new ProtoError(4000, STR_SERVER_ERROR);
 	}
 	if (lobby.sealed) {
 		throw new ProtoError(4000, STR_LOBBY_IS_SEALED);
 	}
+
 	peer.lobby = lobbyName;
-	console.log(`Peer ${peer.id} joining lobby ${lobbyName} `
-		+ `with ${lobby.peers.length} peers`);
+	console.log(`Peer ${peer.id} joining lobby ${lobbyName} with ${lobby.peers.length} peers`);
 	lobby.join(peer);
 	peer.ws.send(ProtoMessage(CMD.JOIN, 0, lobbyName));
 }
+
 
 function parseMsg(peer, msg) {
 	let json = null;
